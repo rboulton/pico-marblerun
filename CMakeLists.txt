@@ -13,11 +13,26 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 add_executable(lights
-    hello_world.c
+    main.cpp
 )
 
+include(common/pimoroni_i2c)
+include(pimoroni-pico/libraries/plasma2040/plasma2040.cmake)
+include(pimoroni-pico/drivers/rgbled/rgbled.cmake)
+include(pimoroni-pico/drivers/button/button.cmake)
+include(pimoroni-pico/drivers/analog/analog.cmake)
+
 # Add pico_stdlib library which aggregates commonly used features
-target_link_libraries(lights pico_stdlib)
+target_link_libraries(lights
+    pico_stdlib
+    plasma2040
+    rgbled
+    button
+    analog
+)
+
+# enable usb output
+pico_enable_stdio_usb(lights 1)
 
 # create map/bin/hex/uf2 file in addition to ELF.
 pico_add_extra_outputs(lights)

@@ -25,6 +25,7 @@ include(pimoroni-pico/drivers/analog/analog.cmake)
 # Add pico_stdlib library which aggregates commonly used features
 target_link_libraries(lights
     pico_stdlib
+    pico_rand
     plasma2040
     rgbled
     button

@@ -13,8 +13,11 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 add_executable(lights
-    main.cpp
+    lights.hpp
+    lights.cpp
 )
+pico_enable_stdio_uart(lights 1)
+pico_enable_stdio_usb(lights 0)
 
 include(common/pimoroni_i2c)
 include(pimoroni-pico/libraries/plasma2040/plasma2040.cmake)

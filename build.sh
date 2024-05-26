@@ -18,5 +18,6 @@ export PIMORONI_PICO_PATH=`pwd`/pico-sdk
 
 mkdir build
 cd build
+#cmake -DCMAKE_BUILD_TYPE=Debug .. -DPICO_BOARD=pimoroni_plasma2040
 cmake .. -DPICO_BOARD=pimoroni_plasma2040
 make

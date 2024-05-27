@@ -265,6 +265,12 @@ class BreakBeamSensors {
 
 static BreakBeamSensors break_beam_sensors;
 
+// Any break less than this time is ignored.
+const uint32_t break_beam_blip_time = 1000;
+
+// Any breaks closer together than this are combined.
+const uint32_t break_beam_settle_time = 60000;
+
 class BreakBeamSensor {
     public:
         BreakBeamSensor(uint gpio);
@@ -273,24 +279,100 @@ class BreakBeamSensor {
             break_beam_sensors.remove(gpio);
         }
 
+        /** Called once for each detection of an object moving through the beam
+         *
+         *  If another apparent event starts within break_beam_settle_time, it
+         *  will be ignored. Events less than break_beam_blip_time will be
+         *  ignored, unless there are following events also within a further
+         *  break_beam_blip_time; this will only be called once such events have
+         *  been happening for longer than break_beam_blip time.
+         */
+        void event(uint32_t start_time, uint32_t end_time) {
+            printf("event(%d, %d) duration %d\n", start_time, end_time, end_time - start_time);
+        }
+
         // Called when the beam is broken
         void fall(uint32_t time) {
-            uint32_t since_last = time - last_fall;
-            printf("BreakBeam %d broken at %d: %d since last, %d since unbroken\n", gpio, time, since_last, time - last_rise);
+            uint32_t since_last_fall = time - last_fall;
+            uint32_t since_last_rise = time - last_rise;
+            uint32_t since_last_event = time - last_event;
             last_fall = time;
+            printf("BreakBeam %d broken at %d: status = %d, since_last_fall = %d, since_last_rise = %d, since_last_event = %d\n", gpio, time, status, since_last_fall, since_last_rise, since_last_event);
+
+            switch (status) {
+                case NO_EVENT:
+                    if (since_last_event < break_beam_settle_time) {
+                        // Continue the event - though we won't report it.
+                        // Don't change the event time
+                        status = IN_REPORTED_EVENT;
+                    } else {
+                        // Start an event
+                        last_event = time;
+                        status = IN_EVENT;
+                    }
+                    break;
+                case IN_EVENT:
+                case IN_REPORTED_EVENT:
+                    // Not expected to happen - but just continue processing the event
+                    break;
+                case MAYBE_EVENT:
+                    if (since_last_rise < break_beam_blip_time) {
+                        // A small gap - continue the event
+                        status = IN_EVENT;
+                    } else {
+                        // A bigger gap than the "blip" time - restart the event.
+                        last_event = time;
+                        status = IN_EVENT;
+                    }
+                    break;
+            }
+            printf("Status -> %d\n", status);
         }
 
         // Called when the beam is restored
         void rise(uint32_t time) {
-            uint32_t since_last = time - last_rise;
-            printf("BreakBeam %d unbroken at %d: %d since last, %d since broken\n", gpio, time, since_last, time - last_fall);
+            uint32_t since_last_fall = time - last_fall;
+            uint32_t since_last_rise = time - last_rise;
+            uint32_t since_event_start = time - last_event;
+            printf("BreakBeam %d unbroken at %d: status = %d, since_last_fall = %d, since_last_rise = %d, since_event_start = %d\n", gpio, time, status, since_last_fall, since_last_rise, since_event_start);
             last_rise = time;
+
+            switch (status) {
+                case NO_EVENT:
+                    // Not expected to happen; ignore
+                    break;
+                case IN_EVENT:
+                    if (since_event_start < break_beam_blip_time) {
+                        // Too short - mark as maybe
+                        status = MAYBE_EVENT;
+                    } else {
+                        // An event detected!
+                        status = NO_EVENT;
+                        event(last_event, time);
+                    }
+                    break;
+                case IN_REPORTED_EVENT:
+                    // We've already reported this - don't care if it's a blip.
+                    status = NO_EVENT;
+                    break;
+                case MAYBE_EVENT:
+                    // Not expected to happen; ignore
+                    break;
+            }
+            printf("Status -> %d\n", status);
         }
 
     private:
         uint gpio;
         uint32_t last_fall;
         uint32_t last_rise;
+        uint32_t last_event;
+        enum {
+            NO_EVENT, // No event in progress.
+            IN_EVENT, // Event in progress, not yet reported
+            IN_REPORTED_EVENT, // Event in progress, but it's already been reported
+            MAYBE_EVENT // Might be in an event (we've seen a fall quickly followed by a rise).
+        } status;
 };
 
 void gpio_breakbeam_callback(uint gpio, uint32_t event_mask) {
@@ -300,7 +382,9 @@ void gpio_breakbeam_callback(uint gpio, uint32_t event_mask) {
 BreakBeamSensor::BreakBeamSensor(uint gpio) :
     gpio(gpio),
     last_fall(0),
-    last_rise(0)
+    last_rise(0),
+    last_event(0),
+    status(NO_EVENT)
 {
     gpio_init(gpio);
     gpio_set_dir(gpio, false);

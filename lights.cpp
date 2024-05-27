@@ -271,9 +271,15 @@ const uint32_t break_beam_blip_time = 1000;
 // Any breaks closer together than this are combined.
 const uint32_t break_beam_settle_time = 60000;
 
+typedef void (*break_beam_callback_t)(uint gpio, uint32_t start_time, uint32_t end_time);
+
 class BreakBeamSensor {
     public:
         BreakBeamSensor(uint gpio);
+
+        void on_event(break_beam_callback_t callback) {
+            this->callback = callback;
+        }
 
         ~BreakBeamSensor() {
             break_beam_sensors.remove(gpio);
@@ -288,7 +294,10 @@ class BreakBeamSensor {
          *  been happening for longer than break_beam_blip time.
          */
         void event(uint32_t start_time, uint32_t end_time) {
-            printf("event(%d, %d) duration %d\n", start_time, end_time, end_time - start_time);
+            // printf("beam %d broken at %d for %d\n", gpio, start_time, end_time - start_time);
+            if (callback) {
+                callback(gpio, start_time, end_time);
+            }
         }
 
         // Called when the beam is broken
@@ -297,7 +306,7 @@ class BreakBeamSensor {
             uint32_t since_last_rise = time - last_rise;
             uint32_t since_last_event = time - last_event;
             last_fall = time;
-            printf("BreakBeam %d broken at %d: status = %d, since_last_fall = %d, since_last_rise = %d, since_last_event = %d\n", gpio, time, status, since_last_fall, since_last_rise, since_last_event);
+            // printf("BreakBeam %d broken at %d: status = %d, since_last_fall = %d, since_last_rise = %d, since_last_event = %d\n", gpio, time, status, since_last_fall, since_last_rise, since_last_event);
 
             switch (status) {
                 case NO_EVENT:
@@ -326,7 +335,7 @@ class BreakBeamSensor {
                     }
                     break;
             }
-            printf("Status -> %d\n", status);
+            // printf("Status -> %d\n", status);
         }
 
         // Called when the beam is restored
@@ -334,7 +343,7 @@ class BreakBeamSensor {
             uint32_t since_last_fall = time - last_fall;
             uint32_t since_last_rise = time - last_rise;
             uint32_t since_event_start = time - last_event;
-            printf("BreakBeam %d unbroken at %d: status = %d, since_last_fall = %d, since_last_rise = %d, since_event_start = %d\n", gpio, time, status, since_last_fall, since_last_rise, since_event_start);
+            // printf("BreakBeam %d unbroken at %d: status = %d, since_last_fall = %d, since_last_rise = %d, since_event_start = %d\n", gpio, time, status, since_last_fall, since_last_rise, since_event_start);
             last_rise = time;
 
             switch (status) {
@@ -359,7 +368,7 @@ class BreakBeamSensor {
                     // Not expected to happen; ignore
                     break;
             }
-            printf("Status -> %d\n", status);
+            // printf("Status -> %d\n", status);
         }
 
     private:
@@ -367,6 +376,8 @@ class BreakBeamSensor {
         uint32_t last_fall;
         uint32_t last_rise;
         uint32_t last_event;
+        break_beam_callback_t callback;
+
         enum {
             NO_EVENT, // No event in progress.
             IN_EVENT, // Event in progress, not yet reported
@@ -384,6 +395,7 @@ BreakBeamSensor::BreakBeamSensor(uint gpio) :
     last_fall(0),
     last_rise(0),
     last_event(0),
+    callback(NULL),
     status(NO_EVENT)
 {
     gpio_init(gpio);
@@ -416,19 +428,88 @@ void start_irq(uint gpio) {
     new BreakBeamSensor(gpio);
 }
 
+class GameEvent {
+    public:
+        GameEvent(uint type, uint32_t time, uint gpio) :
+            type(type),
+            time(time),
+            gpio(gpio)
+        {}
+
+        uint type;
+        uint32_t time;
+        uint gpio;
+};
+
+class Game {
+    public:
+        Game(Grid * grid);
+        ~Game();
+        void start();
+        void break_beam_event(uint gpio, uint32_t start_time, uint32_t end_time);
+
+    private:
+        Grid * grid;
+        std::vector<GameEvent> events;
+};
+
+Game * active_game = NULL;
+
+void break_beam_event_callback(uint gpio, uint32_t start_time, uint32_t end_time) {
+    if (active_game) {
+        active_game->break_beam_event(gpio, start_time, end_time);
+    }
+}
+
+Game::Game(Grid * grid) :
+    grid(grid)
+{}
+
+Game::~Game()
+{
+    if (active_game == this) {
+        active_game = NULL;
+    }
+}
+
+void Game::start() {
+    active_game = this;
+    uint START1 = 10;
+    uint END1 = 12;
+    uint START2 = 11;
+    uint END2 = 13;
+
+    BreakBeamSensor beam_1(START1);
+    BreakBeamSensor beam_2(END1);
+    BreakBeamSensor beam_3(START2);
+    BreakBeamSensor beam_4(END2);
+    beam_1.on_event(break_beam_event_callback);
+    beam_2.on_event(break_beam_event_callback);
+    beam_3.on_event(break_beam_event_callback);
+    beam_4.on_event(break_beam_event_callback);
+
+    while (true) {
+        grid->fade();
+        auto i = events.begin();
+        for (; i != events.end(); i++) {
+            printf("GameEvent %d\n", i->gpio);
+            grid->fill(0.3, 1, 0.5);
+        }
+        events.erase(events.begin(), i);
+
+        grid->show();
+        sleep_ms(1000 / UPDATES);
+    }
+}
+
+void Game::break_beam_event(uint gpio, uint32_t start_time, uint32_t end_time)
+{
+    // printf("beam %d broken at %d for %d\n", gpio, start_time, end_time - start_time);
+    events.push_back(GameEvent(0, gpio, start_time));
+}
+
 int main() {
     stdio_init_all();
-    //stdio_usb_init();
-    //stdout_uart_init();
-    //setup_default_uart();
-
-    //stdio_set_driver_enabled(stdio_usb, true);
-    //stdio_set_driver_enabled(stdio_uart, true);
-
-    BreakBeamSensor beam_10(10);
-    BreakBeamSensor beam_11(11);
-    BreakBeamSensor beam_12(12);
-    BreakBeamSensor beam_13(13);
 
     std::vector<Spark> sparks;
     std::vector<Spark> newsparks;
@@ -447,6 +528,11 @@ int main() {
     columns.push_back(60);
     Grid grid(columns);
 
+    Game game(&grid);
+    active_game = &game;
+
+    game.start();
+
     while(true) {
         // bool sw_pressed = user_sw.read();
         bool a_pressed = false; //button_a.read();
@@ -457,15 +543,6 @@ int main() {
             newsparks.push_back(newspark(next_column++));
             next_column %= columns.size();
         }
-
-        if (a_pressed != a_was_pressed) {
-            printf("A_pressed %d\n", a_pressed);
-            if (a_pressed) {
-                newsparks.push_back(newspark(next_column++));
-                next_column %= columns.size();
-            }
-        }
-        a_was_pressed = a_pressed;
 
         grid.fade();
         //grid.fill(0, 0, 0);

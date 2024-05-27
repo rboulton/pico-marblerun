@@ -26,6 +26,9 @@ class Game {
     private:
         Grid * grid;
         std::vector<GameEvent> events;
+
+        uint32_t track1_start;
+        uint32_t track2_start;
 };
 
 

@@ -15,6 +15,10 @@ pico_sdk_init()
 add_executable(lights
     lights.hpp
     lights.cpp
+    game.hpp
+    game.cpp
+    sensors.hpp
+    sensors.cpp
 )
 pico_enable_stdio_uart(lights 1)
 pico_enable_stdio_usb(lights 0)

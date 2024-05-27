@@ -1,3 +1,5 @@
+#pragma once
+
 #include <vector>
 #include "plasma2040.hpp"
 
